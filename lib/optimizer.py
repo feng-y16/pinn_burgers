@@ -1,6 +1,7 @@
 import scipy.optimize
 import numpy as np
 import tensorflow as tf
+from tqdm import tqdm
 
 class L_BFGS_B:
     """
@@ -114,23 +115,17 @@ class L_BFGS_B:
         """
         self.progbar.on_batch_begin(0)
         loss, _ = self.evaluate(weights)
-        print(loss)
         self.progbar.on_batch_end(0, logs=dict(zip(self.metrics, [loss])))
 
     def fit(self):
         """
         Train the model using L-BFGS-B algorithm.
         """
-
-        # get initial weights as a flat vector
-        initial_weights = np.concatenate(
-            [ w.flatten() for w in self.model.get_weights() ])
-        # optimize the weight vector
-        print('Optimizer: L-BFGS-B (maxiter={})'.format(self.maxiter))
-        self.progbar.on_train_begin()
-        self.progbar.on_epoch_begin(1)
-        scipy.optimize.fmin_l_bfgs_b(func=self.evaluate, x0=initial_weights,
-            factr=self.factr, m=self.m, maxls=self.maxls, maxiter=self.maxiter,
-            callback=self.callback)
-        self.progbar.on_epoch_end(1)
-        self.progbar.on_train_end()
+        optimizer = tf.keras.optimizers.Adam()
+        pbar = tqdm(total=self.maxiter)
+        for i in range(self.maxiter):
+            loss, grads = self.tf_evaluate(self.x_train, self.y_train)
+            optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+            pbar.set_postfix({'loss': '{:.5f}'.format(loss.numpy())})
+            pbar.update()
+        pbar.close()
