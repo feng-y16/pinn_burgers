@@ -74,9 +74,13 @@ class L_BFGS_B:
         Returns:
             loss and gradients for weights as tf.Tensor.
         """
-
+        use_min_max = True
         with tf.GradientTape() as g:
-            loss = tf.reduce_mean(tf.keras.losses.mse(self.model(x), y))
+            if use_min_max:
+                u = self.model(x)
+                loss = tf.reduce_max(tf.reduce_mean(tf.keras.losses.mse(u, y), axis=0))
+            else:
+                loss = tf.reduce_mean(tf.keras.losses.mse(self.model(x), y))
         grads = g.gradient(loss, self.model.trainable_variables)
         return loss, grads
 
@@ -110,6 +114,7 @@ class L_BFGS_B:
         """
         self.progbar.on_batch_begin(0)
         loss, _ = self.evaluate(weights)
+        print(loss)
         self.progbar.on_batch_end(0, logs=dict(zip(self.metrics, [loss])))
 
     def fit(self):
