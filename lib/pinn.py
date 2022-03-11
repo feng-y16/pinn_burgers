@@ -1,5 +1,5 @@
 import tensorflow as tf
-from .layer import GradientLayer
+from .layer import GradientLayerPINN
 
 
 class PINN:
@@ -21,7 +21,7 @@ class PINN:
 
         self.network = network
         self.nu = nu
-        self.grads = GradientLayer(self.network)
+        self.grads = GradientLayerPINN(self.network)
 
     def build(self):
         """

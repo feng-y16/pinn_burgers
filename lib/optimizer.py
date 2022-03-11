@@ -39,6 +39,30 @@ class Optimizer:
         for key in dict_params:
             self.__setattr__(key, dict_params[key])
 
+    def regenerate_data(self, grads_x):
+        tx_eqn, tx_ini, tx_bnd = self.x_train
+        self.x_train[0] = tf.Variable(tf.concat((tx_eqn,
+                                                 tf.add(tx_eqn, grads_x[0] * 0.01)), axis=0))
+        num_train_samples = tx_ini.shape[0]
+        new_tx_ini = 2 * np.random.rand(num_train_samples, 2) - 1  # x_ini = -1 ~ +1
+        new_tx_ini[..., 0] = 0  # t_ini =  0
+        self.x_train[1] = tf.Variable(tf.concat((tx_ini, tf.constant(new_tx_ini, dtype=tf.float32)), axis=0))
+
+        new_tx_bnd = np.random.rand(num_train_samples, 2)  # t_bnd =  0 ~ +1
+        new_tx_bnd[..., 1] = 2 * np.round(new_tx_bnd[..., 1]) - 1  # x_bnd = -1 or +1
+        self.x_train[2] = tf.Variable(tf.concat((tx_bnd, tf.constant(new_tx_bnd, dtype=tf.float32)), axis=0))
+
+        tx_ini = self.x_train[1].numpy()
+        num_train_samples = tx_ini.shape[0]
+        u_eqn = np.zeros((num_train_samples, 1))  # u_eqn = 0
+        if self.network == 'pinn':
+            u_ini = np.sin(-np.pi * tx_ini[..., 1, np.newaxis])  # u_ini = -sin(pi*x_ini)
+        else:
+            u_ini = -np.pi * np.cos(-np.pi * tx_ini[..., 1, np.newaxis])  # u_ini = -sin(pi*x_ini)
+        u_bnd = np.zeros((num_train_samples, 1))  # u_bnd = 0
+        y_train = [u_eqn, u_ini, u_bnd]
+        self.y_train = [tf.constant(y, dtype=tf.float32) for y in y_train]
+
     @tf.function
     def evaluate(self, x, y, p=2):
         """
@@ -54,7 +78,9 @@ class Optimizer:
         """
         with tf.GradientTape() as g:
             u = self.model(x)
-            loss = tf.reduce_mean(tf.keras.losses.mae(u, y) ** p)
+            loss = tf.reduce_mean(tf.keras.losses.mae(u[: 3], y) ** p)
+            if len(u) > 3:
+                loss += tf.reduce_mean(tf.keras.losses.mae(u[3], tf.zeros(u[3].shape)) ** p)
         grads, grads_x = g.gradient(loss, [self.model.trainable_variables, x])
         return loss, grads, grads_x
 
@@ -69,9 +95,8 @@ class Optimizer:
             if self.loss == 'lp':
                 p = int(1 + 1 / (1 - i * 1.0 / self.maxiter))
             loss, grads, grads_x = self.evaluate(self.x_train, self.y_train, p)
-            if self.loss == 'ag' and i % self.gradient_interval == 0:
-                for i in range(len(grads_x)):
-                    self.x_train[i].assign_sub(grads_x[i] * 0.01)
+            if self.loss == 'ag' and (i + 1) % self.gradient_interval == 0:
+                self.regenerate_data(grads_x)
             optimizer_nn.apply_gradients(zip(grads, self.model.trainable_variables))
             pbar.set_postfix({'loss': '{:.5f}'.format(loss.numpy())})
             pbar.update()
