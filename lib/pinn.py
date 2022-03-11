@@ -1,6 +1,7 @@
 import tensorflow as tf
 from .layer import GradientLayer
 
+
 class PINN:
     """
     Build a physics informed neural network (PINN) model for Burgers' equation.
@@ -44,7 +45,7 @@ class PINN:
         tx_bnd = tf.keras.layers.Input(shape=(2,))
 
         # compute gradients
-        u, du_dt, du_dx, d2u_dx2 = self.grads(tx_eqn)
+        u, du_dt, du_dx, d2u_dx2 = self.grads.__call__(tx_eqn)
 
         # equation output being zero
         u_eqn = du_dt + u*du_dx - self.nu*d2u_dx2

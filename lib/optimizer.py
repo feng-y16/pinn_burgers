@@ -1,11 +1,14 @@
+import pdb
+
 import scipy.optimize
 import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 
-class L_BFGS_B:
+
+class Optimizer:
     """
-    Optimize the keras network model using L-BFGS-B algorithm.
+    Optimize the keras network model using adam algorithm.
 
     Attributes:
         model: optimization target model.
@@ -19,113 +22,57 @@ class L_BFGS_B:
         progbar: progress bar
     """
 
-    def __init__(self, model, x_train, y_train, factr=1e7, m=50, maxls=50, maxiter=5000):
+    def __init__(self, model, x_train, y_train, maxiter=5000, dict_params=None):
         """
         Args:
             model: optimization target model.
             samples: training samples.
-            factr: convergence condition. typical values for factr are: 1e12 for low accuracy;
-                   1e7 for moderate accuracy; 10.0 for extremely high accuracy.
-            m: maximum number of variable metric corrections used to define the limited memory matrix.
-            maxls: maximum number of line search steps (per iteration).
             maxiter: maximum number of iterations.
         """
 
         # set attributes
         self.model = model
-        self.x_train = [ tf.constant(x, dtype=tf.float32) for x in x_train ]
-        self.y_train = [ tf.constant(y, dtype=tf.float32) for y in y_train ]
-        self.factr = factr
-        self.m = m
-        self.maxls = maxls
+        self.x_train = [tf.Variable(x, dtype=tf.float32) for x in x_train]
+        self.y_train = [tf.constant(y, dtype=tf.float32) for y in y_train]
         self.maxiter = maxiter
         self.metrics = ['loss']
-        # initialize the progress bar
-        self.progbar = tf.keras.callbacks.ProgbarLogger(
-            count_mode='steps', stateful_metrics=self.metrics)
-        self.progbar.set_params( {
-            'verbose':1, 'epochs':1, 'steps':self.maxiter, 'metrics':self.metrics})
-
-    def set_weights(self, flat_weights):
-        """
-        Set weights to the model.
-
-        Args:
-            flat_weights: flatten weights.
-        """
-
-        # get model weights
-        shapes = [ w.shape for w in self.model.get_weights() ]
-        # compute splitting indices
-        split_ids = np.cumsum([ np.prod(shape) for shape in [0] + shapes ])
-        # reshape weights
-        weights = [ flat_weights[from_id:to_id].reshape(shape)
-            for from_id, to_id, shape in zip(split_ids[:-1], split_ids[1:], shapes) ]
-        # set weights to the model
-        self.model.set_weights(weights)
+        for key in dict_params:
+            self.__setattr__(key, dict_params[key])
 
     @tf.function
-    def tf_evaluate(self, x, y):
+    def evaluate(self, x, y, p=2):
         """
         Evaluate loss and gradients for weights as tf.Tensor.
 
         Args:
             x: input data.
+            y: input label.
+            p: the norm to be used.
 
         Returns:
             loss and gradients for weights as tf.Tensor.
         """
-        use_min_max = True
         with tf.GradientTape() as g:
-            if use_min_max:
-                u = self.model(x)
-                loss = tf.reduce_max(tf.reduce_mean(tf.keras.losses.mse(u, y), axis=0))
-            else:
-                loss = tf.reduce_mean(tf.keras.losses.mse(self.model(x), y))
-        grads = g.gradient(loss, self.model.trainable_variables)
-        return loss, grads
-
-    def evaluate(self, weights):
-        """
-        Evaluate loss and gradients for weights as ndarray.
-
-        Args:
-            weights: flatten weights.
-
-        Returns:
-            loss and gradients for weights as ndarray.
-        """
-
-        # update weights
-        self.set_weights(weights)
-        # compute loss and gradients for weights
-        loss, grads = self.tf_evaluate(self.x_train, self.y_train)
-        # convert tf.Tensor to flatten ndarray
-        loss = loss.numpy().astype('float64')
-        grads = np.concatenate([ g.numpy().flatten() for g in grads ]).astype('float64')
-
-        return loss, grads
-
-    def callback(self, weights):
-        """
-        Callback that prints the progress to stdout.
-
-        Args:
-            weights: flatten weights.
-        """
-        self.progbar.on_batch_begin(0)
-        loss, _ = self.evaluate(weights)
-        self.progbar.on_batch_end(0, logs=dict(zip(self.metrics, [loss])))
+            u = self.model(x)
+            loss = tf.reduce_mean(tf.keras.losses.mae(u, y) ** p)
+        grads, grads_x = g.gradient(loss, [self.model.trainable_variables, x])
+        return loss, grads, grads_x
 
     def fit(self):
         """
-        Train the model using L-BFGS-B algorithm.
+        Train the model using the adam algorithm.
         """
-        optimizer = tf.keras.optimizers.Adam()
+        optimizer_nn = tf.keras.optimizers.Adam(learning_rate=0.001)
         pbar = tqdm(total=self.maxiter)
         for i in range(self.maxiter):
-            loss, grads = self.tf_evaluate(self.x_train, self.y_train)
-            optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+            p = 2
+            if self.loss == 'lp':
+                p = int(1 + 1 / (1 - i * 1.0 / self.maxiter))
+            loss, grads, grads_x = self.evaluate(self.x_train, self.y_train, p)
+            if self.loss == 'ag' and i % self.gradient_interval == 0:
+                for i in range(len(grads_x)):
+                    self.x_train[i].assign_sub(grads_x[i] * 0.01)
+            optimizer_nn.apply_gradients(zip(grads, self.model.trainable_variables))
             pbar.set_postfix({'loss': '{:.5f}'.format(loss.numpy())})
             pbar.update()
         pbar.close()

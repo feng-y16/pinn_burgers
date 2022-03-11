@@ -1,20 +1,34 @@
 import lib.tf_silent
 import numpy as np
 import matplotlib.pyplot as plt
+import argparse
+import os
 from matplotlib.gridspec import GridSpec
 from lib.pinn import PINN
 from lib.network import Network
-from lib.optimizer import L_BFGS_B
+from lib.optimizer import Optimizer
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', '--maxiter', type=int, default=1000)
+    parser.add_argument('-ntr', '--num-train-samples', type=int, default=50)
+    parser.add_argument('-nte', '--num-test-samples', type=int, default=1000)
+    parser.add_argument('-l', '--loss', type=str, default='l2')
+    parser.add_argument('-gi', '--gradient-interval', type=int, default=100)
+    return parser.parse_known_args()[0]
+
 
 if __name__ == '__main__':
     """
     Test the physics informed neural network (PINN) model for Burgers' equation
     """
 
+    args = parse_args()
     # number of training samples
-    num_train_samples = 10000
+    num_train_samples = args.num_train_samples
     # number of test samples
-    num_test_samples = 1000
+    num_test_samples = args.num_test_samples
     # kinematic viscosity
     nu = 0.01 / np.pi
 
@@ -38,9 +52,9 @@ if __name__ == '__main__':
 
     # train the model using L-BFGS-B algorithm
     x_train = [tx_eqn, tx_ini, tx_bnd]
-    y_train = [ u_eqn,  u_ini,  u_bnd]
-    lbfgs = L_BFGS_B(model=pinn, x_train=x_train, y_train=y_train)
-    lbfgs.fit()
+    y_train = [u_eqn,  u_ini,  u_bnd]
+    optimizer = Optimizer(model=pinn, x_train=x_train, y_train=y_train, dict_params=args.__dict__)
+    optimizer.fit()
 
     # predict u(t,x) distribution
     t_flat = np.linspace(0, 1, num_test_samples)
@@ -51,7 +65,7 @@ if __name__ == '__main__':
     u = u.reshape(t.shape)
 
     # plot u(t,x) distribution as a color-map
-    fig = plt.figure(figsize=(7,4))
+    fig = plt.figure(figsize=(7, 4))
     gs = GridSpec(2, 3)
     plt.subplot(gs[0, :])
     plt.pcolormesh(t, x, u, cmap='rainbow')
@@ -71,4 +85,6 @@ if __name__ == '__main__':
         plt.xlabel('x')
         plt.ylabel('u(t,x)')
     plt.tight_layout()
-    plt.show()
+    # plt.show()
+    plt.savefig(os.path.join('figures', args.__dict__.__str__().replace(': ', '-') + '.png'))
+    plt.close()
