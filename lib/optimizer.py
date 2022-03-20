@@ -93,7 +93,7 @@ class Optimizer:
         for i in range(self.maxiter):
             p = 2
             if self.loss == 'lp':
-                p = int(1 + 1 / (1 - i * 1.0 / self.maxiter))
+                p = int(1 + 1 / (1.1 - i * 1.0 / self.maxiter))
             loss, grads, grads_x = self.evaluate(self.x_train, self.y_train, p)
             if self.loss == 'ag' and (i + 1) % self.gradient_interval == 0:
                 self.regenerate_data(grads_x)

@@ -1,5 +1,6 @@
 import pdb
 import time
+import pickle
 import lib.tf_silent
 import numpy as np
 import matplotlib.pyplot as plt
@@ -20,6 +21,7 @@ def parse_args():
     parser.add_argument('-n', '--network', type=str, default='pinn')
     parser.add_argument('-l', '--loss', type=str, default='l2')
     parser.add_argument('-gi', '--gradient-interval', type=int, default=100)
+    parser.add_argument('--gt-path', type=str, default='data/pinn.pkl')
     return parser.parse_known_args()[0]
 
 
@@ -85,18 +87,37 @@ if __name__ == '__main__':
     plt.xlabel('t')
     plt.ylabel('x')
     cbar = plt.colorbar(pad=0.05, aspect=10)
-    cbar.set_label('u(t,x)')
+    if args.network == 'gfnn':
+        cbar.set_label('du(t,x)/dx')
+    else:
+        cbar.set_label('u(t,x)')
     cbar.mappable.set_clim(-1, 1)
     # plot u(t=const, x) cross-sections
     t_cross_sections = [0.25, 0.5, 0.75]
+    gt_data = None
+    if os.path.isfile(args.gt_path):
+        with open(args.gt_path, 'rb') as f:
+            gt_data = pickle.load(f)
+    data = {}
     for i, t_cs in enumerate(t_cross_sections):
         plt.subplot(gs[1, i])
         tx = np.stack([np.full(t_flat.shape, t_cs), x_flat], axis=-1)
         u = network.predict(tx, batch_size=num_test_samples)[..., -1]
-        plt.plot(x_flat, u)
+        plt.plot(x_flat, u, label='exp')
         plt.title('t={}'.format(t_cs))
         plt.xlabel('x')
-        plt.ylabel('u(t,x)')
+        if args.network == 'gfnn':
+            plt.ylabel('du(t,x)/dx')
+        else:
+            plt.ylabel('u(t,x)')
+            data[t_cs] = [x_flat, u]
+            if gt_data and t_cs in gt_data.keys():
+                plt.plot(gt_data[t_cs][0], gt_data[t_cs][1], label='gt')
+    if not os.path.isfile(args.gt_path):
+        with open(args.gt_path, 'wb') as f:
+            pickle.dump(data, f)
+    plt.legend(loc='best')
     plt.tight_layout()
-    plt.savefig(os.path.join('figures', args.__dict__.__str__().replace(': ', '-') + str(time.time()) + '.png'))
+    plt.savefig(os.path.join('figures', list(args.__dict__.values())[:-1].__str__() + str(time.time()) + '.png'))
+    plt.show()
     plt.close()
